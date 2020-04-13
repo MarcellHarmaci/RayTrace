@@ -107,7 +107,7 @@ public:
 
 		vec3 kd(0.3f, 0.2f, 0.1f), ks(2, 2, 2);
 		Material * material = new Material(kd, ks, 50);
-		for (int i = 0; i < 500; i++) 
+		for (int i = 0; i < 50; i++) 
 			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, material));
 	}
 
