@@ -11,7 +11,7 @@ struct Material {
 struct Hit {
 	float t;
 	vec3 position, normal;
-	Material * material;
+	Material* material;
 	Hit() { t = -1; }
 };
 
@@ -25,9 +25,181 @@ struct Ray {
 
 class Intersectable {
 protected:
-	Material * material;
+	Material* material;
 public:
 	virtual Hit intersect(const Ray& ray) = 0;
+};
+
+struct Quadrics {
+	mat4 Q;
+
+	Quadrics(){}
+	Quadrics(mat4 _Q) { Q = _Q; }
+
+	// Source: Homework assignment video
+	float f(vec4 r) {
+		return dot(r * Q, r);
+	}
+
+	// Source: Homework assignment video
+	vec3 gradf(vec4 r) {
+		vec4 g = r * Q * 2;
+		return vec3(g.x, g.y, g.z);
+	}
+
+	vec3 getQuadParam(const Ray& ray) {
+		vec4 u = vec4(ray.dir.x, ray.dir.y, ray.dir.z, 1.0f);
+		vec4 p = vec4(ray.start.x, ray.start.y, ray.start.z, 1.0f);
+		float a = dot(u * Q, u);
+		float b = dot(u * Q, p);
+		float c = dot(p * Q, p);
+
+		return vec3(a, b, c);
+	}
+	
+	vec2 solve(const Ray& ray) {
+		vec4 p = vec4(ray.start.x, ray.start.y, ray.start.z, 1.0f);
+		vec4 u = vec4(ray.dir.x, ray.dir.y, ray.dir.z, 1.0f);
+
+		float a = dot(u * Q, u);
+		float b = dot(u * Q, p);
+		float c = dot(p * Q, p);
+
+		float discr = b * b - a * c;
+		if (discr < 0)
+			return vec2 (-1.0f, -1.0f);
+	
+		float sqrt_discr = sqrtf(discr);
+		float t1 = (-b + sqrt_discr) / a;	// t1 >= t2 for sure
+		float t2 = (-b - sqrt_discr) / a;
+
+		return vec2(t1, t2);
+	}
+};
+
+struct Hiperboloid : public Intersectable {
+	vec3 param;
+	Quadrics mx;
+
+	Hiperboloid(vec3 _param, Material* _material) {
+		param = _param;
+		Quadrics(mat4(
+			1.0f / (param.x * param.x), 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f / (param.y * param.y), 0.0f, 0.0f,
+			0.0f, 0.0f, -1.0f / (param.z * param.z), 0.0f,
+			0.0f, 0.0f, 0.0f, -1.0f
+		));
+		material = _material;
+	}
+
+	Hit intersect(const Ray& ray) {
+		Hit hit;
+		/*
+		vec3 p = vec3(
+			param.y * param.y * param.z * param.z,
+			param.x * param.x * param.z * param.z,
+			param.x * param.x * param.y * param.y * (-1.0f)
+		);
+		float a = dot(p, ray.dir * ray.dir);
+		float b = 2.0f * dot(p, ray.start * ray.dir);
+		float c = dot(p, ray.start * ray.start) - param.x * param.x * param.y * param.y * param.z * param.z;
+		*/
+		vec3 quadParam = mx.getQuadParam(ray);
+
+		float discr = quadParam.y * quadParam.y - quadParam.x * quadParam.z;
+		if (discr < 0) {
+			printf("discr= %3.2f\n", discr);
+			return hit;
+		}
+		float sqrt_discr = sqrtf(discr);
+		float t1 = (-quadParam.y + sqrt_discr) / quadParam.x;	// t1 >= t2 for sure
+		float t2 = (-quadParam.y - sqrt_discr) / quadParam.x;
+
+		if (t1 <= 0) {
+			printf("t1 = %3.2f\n", t1);
+			return hit;
+		}
+		hit.t = (t2 > 0) ? t2 : t1;
+		vec3 pos3 = ray.start + ray.dir * hit.t;
+		vec4 pos4 = vec4(pos3.x, pos3.y, pos3.z, 1);
+		hit.position = mx.f(pos4);
+		printf("hit position = %3.2f, %3.2f, %3.2f\n", hit.position.x, hit.position.y, hit.position.z);
+		hit.normal = mx.gradf(pos4);
+		hit.material = material;
+		return hit;
+	}
+};
+
+struct Ellipsoid : public Intersectable {
+	vec3 center;   // <c1,c2,c3>
+	float a, b, c; // distances from center
+	Quadrics mx;
+
+	Ellipsoid(const vec3& _center, float _a, float _b, float _c, Material* _material) {
+		center = _center; // <p1,p2,p3>
+		a = _a;
+		b = _b;
+		c = _c;
+		material = _material;
+		Quadrics(mat4(
+			1.0f / (a * a), 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f / (b * b), 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f / (c * c), 0.0f,
+			0.0f, 0.0f, 0.0f, -1.0f
+		));
+	}
+
+	Hit intersect(const Ray& ray) {
+		Hit hit;
+		/*
+		float d1 = ray.dir.x;
+		float d2 = ray.dir.y;
+		float d3 = ray.dir.z;
+
+		float s1 = ray.start.x;
+		float s2 = ray.start.y;
+		float s3 = ray.start.z;
+
+		float p1 = center.x;
+		float p2 = center.y;
+		float p3 = center.z;
+
+		float b2c2 = b * b * c * c;
+		float a2c2 = a * a * c * c;
+		float a2b2 = a * a * b * b;
+
+		float A = (d1 * d1 * b2c2) + (d2 * d2 * a2c2) + (d3 * d3 * a2b2);
+		float B = 2 * (
+			(d1 * (s1 - p1) * b2c2) +
+			(d2 * (s2 - p2) * a2c2) +
+			(d3 * (s3 - p3) * a2b2)
+			);
+		float C = -(a * a * b * b * c * c) +
+			(s1 - p1) * (s1 - p1) * b2c2 +
+			(s2 - p2) * (s2 - p2) * a2c2 +
+			(s3 - p3) * (s3 - p3) * a2b2;
+
+		float discr = B * B - 4.0f * A * C;
+		if (discr < 0) return hit;
+		float sqrt_discr = sqrtf(discr);
+		float t1 = (-B + sqrt_discr) / 2.0f / A;	// t1 >= t2 for sure
+		float t2 = (-B - sqrt_discr) / 2.0f / A;
+		*/
+		vec2 solution = mx.solve(ray);
+		printf("%3.2f, %3.2f\n", solution.x, solution.y);
+		float t1 = solution.x;
+		float t2 = solution.y;
+		
+		if (t1 <= 0) return hit;
+		hit.t = (t2 > 0) ? t2 : t1;
+		hit.position = ray.start + ray.dir * hit.t;
+		hit.normal.x = 2.0f * (hit.position.x - center.x) / (a * a);
+		hit.normal.y = 2.0f * (hit.position.y - center.y) / (b * b);
+		hit.normal.z = 2.0f * (hit.position.z - center.z) / (c * c);
+		hit.normal = normalize(hit.normal);
+		hit.material = material;
+		return hit;
+	}
 };
 
 struct Sphere : public Intersectable {
@@ -102,13 +274,19 @@ public:
 		camera.set(eye, lookat, vup, fov);
 
 		La = vec3(0.4f, 0.4f, 0.4f);
+		// La = vec3(135.0f/255.0f, 206.0f / 255.0f, 235.0f / 255.0f); Sky blue
 		vec3 lightDirection(1, 1, 1), Le(2, 2, 2);
 		lights.push_back(new Light(lightDirection, Le));
 
-		vec3 kd(0.3f, 0.2f, 0.1f), ks(2, 2, 2);
-		Material * material = new Material(kd, ks, 50);
-		for (int i = 0; i < 50; i++) 
-			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, material));
+		vec3 kd1(0.3f, 0.2f, 0.1f), kd2(0.1f, 0.2f, 0.3f), ks(2, 2, 2);
+		Material * material1 = new Material(kd1, ks, 50);
+		Material * material2 = new Material(kd2, ks, 50);
+
+		//objects.push_back(new Hiperboloid(vec3(0.3f, 0.4f, 0.6f), material1));
+		for (int i = 0; i < 50; i++) {
+			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, material2));
+		}
+		objects.push_back(new Ellipsoid(vec3(0.0f, 0.0f, 0.0f), 0.3f, 0.5f, 0.3f, material1));
 	}
 
 	void render(std::vector<vec4>& image) {
@@ -127,27 +305,35 @@ public:
 			Hit hit = object->intersect(ray); //  hit.t < 0 if no intersection
 			if (hit.t > 0 && (bestHit.t < 0 || hit.t < bestHit.t))  bestHit = hit;
 		}
-		if (dot(ray.dir, bestHit.normal) > 0) bestHit.normal = bestHit.normal * (-1);
+		if (dot(ray.dir, bestHit.normal) > 0)
+			bestHit.normal = bestHit.normal * (-1);
 		return bestHit;
 	}
 
 	bool shadowIntersect(Ray ray) {	// for directional lights
-		for (Intersectable * object : objects) if (object->intersect(ray).t > 0) return true;
+		for (Intersectable * object : objects) 
+			if (object->intersect(ray).t > 0) return true;
+
 		return false;
 	}
 
 	vec3 trace(Ray ray, int depth = 0) {
 		Hit hit = firstIntersect(ray);
-		if (hit.t < 0) return La;
+		if (hit.t < 0) 
+			return La;
+
 		vec3 outRadiance = hit.material->ka * La;
+
 		for (Light * light : lights) {
 			Ray shadowRay(hit.position + hit.normal * epsilon, light->direction);
 			float cosTheta = dot(hit.normal, light->direction);
+
 			if (cosTheta > 0 && !shadowIntersect(shadowRay)) {	// shadow computation
 				outRadiance = outRadiance + light->Le * hit.material->kd * cosTheta;
 				vec3 halfway = normalize(-ray.dir + light->direction);
 				float cosDelta = dot(hit.normal, halfway);
-				if (cosDelta > 0) outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
+				if (cosDelta > 0) 
+					outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
 			}
 		}
 		return outRadiance;
