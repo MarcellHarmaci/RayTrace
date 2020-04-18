@@ -60,10 +60,18 @@ struct Quadrics {
 	vec2 solve(const Ray& ray) {
 		vec4 p = vec4(ray.start.x, ray.start.y, ray.start.z, 1.0f);
 		vec4 u = vec4(ray.dir.x, ray.dir.y, ray.dir.z, 1.0f);
+		//printf("p1: %3.2f, p2: %3.2f, p3: %3.2f, p4: %3.2f\n", p.x, p.y, p.z, p.w);
+		//printf("u1: %3.2f, u2: %3.2f, u3: %3.2f, u4: %3.2f\n", u.x, u.y, u.z, u.w);
+		//printf("Q:\n%3.2f\t%3.2f\t%3.2f\t%3.2f\n%3.2f\t%3.2f\t%3.2f\t%3.2f\n%3.2f\t%3.2f\t%3.2f\t%3.2f\n%3.2f\t%3.2f\t%3.2f\t%3.2f\n",
+		//	Q[0].x, Q[0].y, Q[0].z, Q[0].w,
+		//	Q[1].x, Q[1].y, Q[1].z, Q[1].w,
+		//	Q[2].x, Q[2].y, Q[2].z, Q[2].w,
+		//	Q[3].x, Q[3].y, Q[3].z, Q[3].w);
 
 		float a = dot(u * Q, u);
 		float b = dot(u * Q, p);
 		float c = dot(p * Q, p);
+		//printf("a: %3.2f, b: %3.2f, c: %3.2f\n", a, b, c);
 
 		float discr = b * b - a * c;
 		if (discr < 0)
@@ -141,7 +149,7 @@ struct Ellipsoid : public Intersectable {
 		b = _b;
 		c = _c;
 		material = _material;
-		Quadrics(mat4(
+		mx = Quadrics(mat4(
 			1.0f / (a * a), 0.0f, 0.0f, 0.0f,
 			0.0f, 1.0f / (b * b), 0.0f, 0.0f,
 			0.0f, 0.0f, 1.0f / (c * c), 0.0f,
@@ -186,13 +194,14 @@ struct Ellipsoid : public Intersectable {
 		float t2 = (-B - sqrt_discr) / 2.0f / A;
 		*/
 		vec2 solution = mx.solve(ray);
-		printf("%3.2f, %3.2f\n", solution.x, solution.y);
+		//printf("%3.2f, %3.2f\n", solution.x, solution.y);
 		float t1 = solution.x;
 		float t2 = solution.y;
 		
 		if (t1 <= 0) return hit;
 		hit.t = (t2 > 0) ? t2 : t1;
 		hit.position = ray.start + ray.dir * hit.t;
+		//hit.normal = mx.gradf(vec4(hit.position.x, hit.position.y, hit.position.z, 0));
 		hit.normal.x = 2.0f * (hit.position.x - center.x) / (a * a);
 		hit.normal.y = 2.0f * (hit.position.y - center.y) / (b * b);
 		hit.normal.z = 2.0f * (hit.position.z - center.z) / (c * c);
@@ -283,10 +292,10 @@ public:
 		Material * material2 = new Material(kd2, ks, 50);
 
 		//objects.push_back(new Hiperboloid(vec3(0.3f, 0.4f, 0.6f), material1));
-		for (int i = 0; i < 50; i++) {
-			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, material2));
-		}
-		objects.push_back(new Ellipsoid(vec3(0.0f, 0.0f, 0.0f), 0.3f, 0.5f, 0.3f, material1));
+		//for (int i = 0; i < 50; i++) {
+		//	objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, material2));
+		//}
+		objects.push_back(new Ellipsoid(vec3(0.0f, 0.0f, 0.0f), 0.03f, 0.05f, 0.03f, material1));
 	}
 
 	void render(std::vector<vec4>& image) {
