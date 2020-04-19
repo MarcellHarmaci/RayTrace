@@ -1,10 +1,37 @@
 #include "framework.h"
 
+enum MaterialType {
+	ROUGH, REFLECTIVE
+};
+
 struct Material {
 	vec3 ka, kd, ks;
 	float  shininess;
-	Material(vec3 _kd, vec3 _ks, float _shininess): ka(_kd * M_PI), kd(_kd), ks(_ks) {
+	vec3 F0;
+	MaterialType type;
+	Material(MaterialType _type) {
+		type = _type;
+	}
+};
+
+struct RoughMaterial : Material {
+	RoughMaterial(vec3 _kd, vec3 _ks, float _shininess) : Material(ROUGH) {
+		ka = _kd * M_PI;
+		kd = _kd;
+		ks = _ks;
 		shininess = _shininess;
+	}
+};
+
+vec3 operator/(vec3 num, vec3 denom) {
+	return vec3(num.x / denom.x, num.y / denom.y, num.z / denom.z);
+}
+
+struct ReflectiveMaterial : Material {
+	ReflectiveMaterial(vec3 n, vec3 kappa) : Material(REFLECTIVE) {
+		vec3 one(1, 1, 1);
+		F0 = ((n - one) * (n - one) + kappa * kappa) /
+			((n + one) * (n + one) + kappa * kappa);
 	}
 };
 
@@ -207,24 +234,26 @@ class Scene {
 	vec3 La;
 public:
 	void build() {
-		vec3 eye = vec3(2.0f, 2.0f, 0.0f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
+		vec3 eye = vec3(0.0f, 0.0f, 2.0f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
 		float fov = 45 * M_PI / 180;
 		camera.set(eye, lookat, vup, fov);
 
 		La = vec3(0.4f, 0.4f, 0.4f);
 		// La = vec3(135.0f/255.0f, 206.0f / 255.0f, 235.0f / 255.0f); Sky blue
-		vec3 lightDirection(10.0f, 10.5f, 10.8f), Le(2, 2, 2);
+		vec3 lightDirection(0.2f, 0.2, 1.0f), Le(2, 2, 2);
 		lights.push_back(new Light(lightDirection, Le));
 
 		vec3 kd1(0.3f, 0.2f, 0.1f), kd2(0.1f, 0.2f, 0.3f), ks(2, 2, 2);
-		Material * material1 = new Material(kd1, ks, 50);
-		Material * material2 = new Material(kd2, ks, 50);
+		vec3 n(1, 1, 1), kappa(5, 4, 3);
+		Material* material1 = new RoughMaterial(kd1, ks, 50);
+		Material* material2 = new RoughMaterial(kd2, ks, 50);
+		Material* material3 = new ReflectiveMaterial(n, kappa);
 
 		for (int i = 0; i < 50; i++) {
 			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, material2));
 		}
-		objects.push_back(new Ellipsoid(0.3f, 0.5f, 0.4f, material1));
-		objects.push_back(new Hyperboloid(0.45f, 0.65f, 0.25f, material1));
+		objects.push_back(new Ellipsoid(0.3f, 1.0f, 0.4f, material1));
+		objects.push_back(new Hyperboloid(0.45f, 0.65f, 1.5f, material1));
 		//objects.push_back(new EllipticalCone(0.45f, 0.65f, 0.25f, material1));
 		//objects.push_back(new EllipticParaboloid(0.45f, 0.65f, material1));
 	}
@@ -258,24 +287,39 @@ public:
 	}
 
 	vec3 trace(Ray ray, int depth = 0) {
+		if (depth > 5) return La;
+
 		Hit hit = firstIntersect(ray);
 		if (hit.t < 0) 
 			return La;
 
-		vec3 outRadiance = hit.material->ka * La;
+		vec3 outRadiance(0, 0, 0);
 
-		for (Light * light : lights) {
-			Ray shadowRay(hit.position + hit.normal * epsilon, light->direction);
-			float cosTheta = dot(hit.normal, light->direction);
+		if (hit.material->type == ROUGH) {
+			outRadiance = hit.material->ka * La;
 
-			if (cosTheta > 0 && !shadowIntersect(shadowRay)) {	// shadow computation
-				outRadiance = outRadiance + light->Le * hit.material->kd * cosTheta;
-				vec3 halfway = normalize(-ray.dir + light->direction);
-				float cosDelta = dot(hit.normal, halfway);
-				if (cosDelta > 0) 
-					outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
+			for (Light * light : lights) {
+				Ray shadowRay(hit.position + hit.normal * epsilon, light->direction);
+				float cosTheta = dot(hit.normal, light->direction);
+
+				if (cosTheta > 0 && !shadowIntersect(shadowRay)) {	// shadow computation
+					outRadiance = outRadiance + light->Le * hit.material->kd * cosTheta;
+					vec3 halfway = normalize(-ray.dir + light->direction);
+					float cosDelta = dot(hit.normal, halfway);
+					if (cosDelta > 0) 
+						outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
+				}
 			}
 		}
+
+		if (hit.material->type == REFLECTIVE) {
+			vec3 reflectedDir = ray.dir - hit.normal * dot(hit.normal, ray.dir) * 2.0f;
+			float cosa = -dot(ray.dir, hit.normal);
+			vec3 one(1, 1, 1);
+			vec3 F = hit.material->F0 + (one - hit.material->F0) * pow(1 - cosa, 5);
+			outRadiance = outRadiance + trace(Ray(hit.position + hit.normal * epsilon, reflectedDir), depth + 1) * F;
+		}
+		
 		return outRadiance;
 	}
 };
