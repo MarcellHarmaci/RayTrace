@@ -57,6 +57,59 @@ public:
 	virtual Hit intersect(const Ray& ray) = 0;
 };
 
+mat4 transpose(mat4 mx) {
+	vec4 a = mx[0], b = mx[1], c = mx[2], d = mx[3];
+	return mat4(
+		a.x, b.x, c.x, d.x,
+		a.y, b.y, c.y, d.y,
+		a.z, b.z, c.z, d.z,
+		a.w, b.w, c.w, d.w
+	);
+}
+
+mat4 invTranslateMx(mat4 mx) {
+	vec4 param = mx[3];
+	return mat4(
+		1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		-param.x, -param.y, -param.z, 1.0f
+	);
+}
+
+mat4 invScaleMx(mat4 mx) {
+	vec3 param(mx[0].x, mx[1].y, mx[2].z);
+	return mat4(
+		1.0f / mx[0].x, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f / mx[1].y, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f / mx[2].z, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	);
+}
+
+mat4 invRotationMx(mat4 mx) {
+	vec4 a = mx[0], b = mx[1], c = mx[2];
+	float a3b2c1 = a.z * b.y * c.x, a2b3c1 = a.y * b.z * c.x, a3b1c2 = a.z * b.x * c.y, a1b3c2 = a.x * b.z * c.y, a2b1c3 = a.y * b.x * c.z, a1b2c3 = a.x * b.y * c.z;
+	return mat4(
+		vec4(
+			(b.z * c.y - b.y * c.z) / (a3b2c1 - a2b3c1 - a3b1c2 + a1b3c2 + a2b1c3 - a1b2c3),
+			(a.z * c.y - a.y * c.z) / (-a3b2c1 + a2b3c1 + a3b1c2 - a1b3c2 - a2b1c3 + a1b2c3),
+			(a.z * b.y - a.y * b.z) / (a3b2c1 - a2b3c1 - a3b1c2 + a1b3c2 + a2b1c3 - a1b2c3),
+			0.0f),
+		vec4(
+			(b.z * c.x - b.x * c.z) / (-a3b2c1 + a2b3c1 + a3b1c2 - a1b3c2 - a2b1c3 + a1b2c3),
+			(a.z * c.x - a.x * c.z) / (a3b2c1 - a2b3c1 - a3b1c2 + a1b3c2 + a2b1c3 - a1b2c3),
+			(a.z * b.x - a.x * b.z) / (-a3b2c1 + a2b3c1 + a3b1c2 - a1b3c2 - a2b1c3 + a1b2c3),
+			0.0f),
+		vec4(
+			(b.y * c.x - b.x * c.y) / (a3b2c1 - a2b3c1 - a3b1c2 + a1b3c2 + a2b1c3 - a1b2c3),
+			(a.y * c.x - a.x * c.y) / (-a3b2c1 + a2b3c1 + a3b1c2 - a1b3c2 - a2b1c3 + a1b2c3),
+			(a.y * b.x - a.x * b.y) / (a3b2c1 - a2b3c1 - a3b1c2 + a1b3c2 + a2b1c3 - a1b2c3),
+			0.0f),
+		vec4(0.0f, 0.0f, 0.0f, 1.0f)
+	);
+}
+
 class Quadric : public Intersectable {
 protected:
 	mat4 Q;
@@ -72,7 +125,7 @@ public:
 		vec4 g = r * Q * 2;
 		return vec3(g.x, g.y, g.z);
 	}
-	
+
 	vec2 solve(const Ray& ray) {
 		vec4 p = vec4(ray.start.x, ray.start.y, ray.start.z, 1.0f);
 		vec4 u = vec4(ray.dir.x, ray.dir.y, ray.dir.z, 0.0f);
@@ -84,7 +137,7 @@ public:
 		float discr = b * b - a * c;
 		if (discr < 0)
 			return vec2(-1.0f, -1.0f);
-	
+
 		float sqrt_discr = sqrtf(discr);
 		float t1 = (-b + sqrt_discr) / a;	// t1 >= t2 for sure
 		float t2 = (-b - sqrt_discr) / a;
@@ -105,6 +158,20 @@ public:
 		hit.material = material;
 		return hit;
 	}
+
+	void translate(vec3 t) {
+		mat4 trMx = TranslateMatrix(t);
+		mat4 invTrMx = invTranslateMx(trMx);
+		mat4 transposeOfInvTrMx = transpose(invTrMx);
+		Q = invTrMx * Q * transposeOfInvTrMx;
+	}
+
+	void rotate(float angle, vec3 w) {
+		mat4 rotaMx = RotationMatrix(angle, w);
+		mat4 invRotaMx = invRotationMx(rotaMx);
+		mat4 transposeOfInvRotaMx = transpose(invRotaMx);
+		Q = invRotaMx * Q * transposeOfInvRotaMx;
+	}
 };
 
 struct Hyperboloid : public Quadric {
@@ -122,36 +189,6 @@ struct Hyperboloid : public Quadric {
 	}
 };
 
-struct EllipticalCone : public Quadric {
-	float a, b, c;
-
-	EllipticalCone(float _a, float _b, float _c, Material* _material) {
-		material = _material;
-		a = _a; b = _b; c = _c;
-		Q = mat4(
-			1.0f / (a * a), 0.0f, 0.0f, 0.0f,
-			0.0f, 1.0f / (b * b), 0.0f, 0.0f,
-			0.0f, 0.0f, -1.0f / (c * c), 0.0f,
-			0.0f, 0.0f, 0.0f, 0.0f
-		);
-	}
-};
-
-struct EllipticParaboloid : public Quadric {
-	float a, b;
-
-	EllipticParaboloid(float _a, float _b, Material* _material) {
-		a = _a; b = _b;
-		material = _material;
-		Q = mat4(
-			1.0f / (a * a), 0.0f, 0.0f, 0.0f,
-			0.0f, 1.0f / (b * b), 0.0f, 0.0f,
-			0.0f, 0.0f, 0.0f, 0.0f,
-			0.0f, 0.0f, 0.0f, 0.0f
-		);
-	}
-};
-
 struct Ellipsoid : public Quadric {
 	float a, b, c;
 
@@ -163,6 +200,21 @@ struct Ellipsoid : public Quadric {
 			0.0f, 1.0f / (b * b), 0.0f, 0.0f,
 			0.0f, 0.0f, 1.0f / (c * c), 0.0f,
 			0.0f, 0.0f, 0.0f, -1.0f
+		);
+	}
+};
+
+struct EllipticalCone : public Quadric {
+	float a, b, c;
+
+	EllipticalCone(float _a, float _b, float _c, Material* _material) {
+		material = _material;
+		a = _a; b = _b; c = _c;
+		Q = mat4(
+			1.0f / (a * a), 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f / (b * b), 0.0f, 0.0f,
+			0.0f, 0.0f, -1.0f / (c * c), 0.0f,
+			0.0f, 0.0f, 0.0f, 0.0f
 		);
 	}
 };
@@ -228,32 +280,40 @@ float rnd() { return (float)rand() / RAND_MAX; }
 const float epsilon = 0.0001f;
 
 class Scene {
-	std::vector<Intersectable *> objects;
-	std::vector<Light *> lights;
+	std::vector<Intersectable*> objects;
+	std::vector<Light*> lights;
 	Camera camera;
 	vec3 La;
 public:
 	void build() {
-		vec3 eye = vec3(0.0f, 0.0f, 2.0f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
+		vec3 eye = vec3(0.0f, 0.0f, 3.0f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
 		float fov = 45 * M_PI / 180;
 		camera.set(eye, lookat, vup, fov);
 
 		La = vec3(0.4f, 0.4f, 0.4f);
-		// La = vec3(135.0f/255.0f, 206.0f / 255.0f, 235.0f / 255.0f); Sky blue
-		vec3 lightDirection(0.2f, 0.2, 1.0f), Le(2, 2, 2);
+		// La = vec3(135.0f/255.0f, 206.0f / 255.0f, 235.0f / 255.0f); Sky blueRough
+		vec3 lightDirection(1.0f, 1.0f, 1.0f), Le(2, 2, 2);
 		lights.push_back(new Light(lightDirection, Le));
 
 		vec3 kd1(0.3f, 0.2f, 0.1f), kd2(0.1f, 0.2f, 0.3f), ks(2, 2, 2);
-		vec3 n(1, 1, 1), kappa(5, 4, 3);
-		Material* material1 = new RoughMaterial(kd1, ks, 50);
-		Material* material2 = new RoughMaterial(kd2, ks, 50);
-		Material* material3 = new ReflectiveMaterial(n, kappa);
+		vec3 silverN(0.14f, 0.16f, 0.13f), silverKappa(4.1f, 2.6f, 3.1f);
+		vec3 goldN(0.17, 0.35, 1.5), goldKappa = vec3(3.1f, 2.7f, 1.9f);
+		Material* brownRough = new RoughMaterial(kd1, ks, 50);
+		Material* blueRough = new RoughMaterial(kd2, ks, 50);
+
+		Material* silverMirror = new ReflectiveMaterial(silverN, silverKappa);
+		Material* goldenMirror = new ReflectiveMaterial(goldN, goldKappa);
 
 		for (int i = 0; i < 50; i++) {
-			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, material2));
+			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, blueRough));
 		}
-		objects.push_back(new Ellipsoid(0.3f, 1.0f, 0.4f, material1));
-		objects.push_back(new Hyperboloid(0.45f, 0.65f, 1.5f, material1));
+
+		Ellipsoid* ellipsoid = new Ellipsoid(0.3f, 0.4f, 0.2f, brownRough);
+		ellipsoid->translate(vec3(0.2f, 0.2f, 0.7f));
+		ellipsoid->rotate(60.0f, vec3(-1.0f, -1.0f, -1.0f));
+		objects.push_back(ellipsoid);
+
+		//objects.push_back(new Hyperboloid(0.45f, 0.65f, 0.8f, brownRough));
 		//objects.push_back(new EllipticalCone(0.45f, 0.65f, 0.25f, material1));
 		//objects.push_back(new EllipticParaboloid(0.45f, 0.65f, material1));
 	}
@@ -270,7 +330,7 @@ public:
 
 	Hit firstIntersect(Ray ray) {
 		Hit bestHit;
-		for (Intersectable * object : objects) {
+		for (Intersectable* object : objects) {
 			Hit hit = object->intersect(ray); //  hit.t < 0 if no intersection
 			if (hit.t > 0 && (bestHit.t < 0 || hit.t < bestHit.t))  bestHit = hit;
 		}
@@ -280,7 +340,7 @@ public:
 	}
 
 	bool shadowIntersect(Ray ray) {	// for directional lights
-		for (Intersectable * object : objects) 
+		for (Intersectable* object : objects)
 			if (object->intersect(ray).t > 0) return true;
 
 		return false;
@@ -290,7 +350,7 @@ public:
 		if (depth > 5) return La;
 
 		Hit hit = firstIntersect(ray);
-		if (hit.t < 0) 
+		if (hit.t < 0)
 			return La;
 
 		vec3 outRadiance(0, 0, 0);
@@ -298,7 +358,7 @@ public:
 		if (hit.material->type == ROUGH) {
 			outRadiance = hit.material->ka * La;
 
-			for (Light * light : lights) {
+			for (Light* light : lights) {
 				Ray shadowRay(hit.position + hit.normal * epsilon, light->direction);
 				float cosTheta = dot(hit.normal, light->direction);
 
@@ -306,7 +366,7 @@ public:
 					outRadiance = outRadiance + light->Le * hit.material->kd * cosTheta;
 					vec3 halfway = normalize(-ray.dir + light->direction);
 					float cosDelta = dot(hit.normal, halfway);
-					if (cosDelta > 0) 
+					if (cosDelta > 0)
 						outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
 				}
 			}
@@ -319,7 +379,7 @@ public:
 			vec3 F = hit.material->F0 + (one - hit.material->F0) * pow(1 - cosa, 5);
 			outRadiance = outRadiance + trace(Ray(hit.position + hit.normal * epsilon, reflectedDir), depth + 1) * F;
 		}
-		
+
 		return outRadiance;
 	}
 };
@@ -328,7 +388,7 @@ GPUProgram gpuProgram; // vertex and fragment shaders
 Scene scene;
 
 // vertex shader in GLSL
-const char *vertexSource = R"(
+const char* vertexSource = R"(
 	#version 330
     precision highp float;
 
@@ -342,7 +402,7 @@ const char *vertexSource = R"(
 )";
 
 // fragment shader in GLSL
-const char *fragmentSource = R"(
+const char* fragmentSource = R"(
 	#version 330
     precision highp float;
 
@@ -360,7 +420,7 @@ class FullScreenTexturedQuad {
 	Texture texture;
 public:
 	FullScreenTexturedQuad(int windowWidth, int windowHeight, std::vector<vec4>& image)
-		: texture(windowWidth, windowHeight, image) 
+		: texture(windowWidth, windowHeight, image)
 	{
 		glGenVertexArrays(1, &vao);	// create 1 vertex array object
 		glBindVertexArray(vao);		// make it active
@@ -383,7 +443,7 @@ public:
 	}
 };
 
-FullScreenTexturedQuad * fullScreenTexturedQuad;
+FullScreenTexturedQuad* fullScreenTexturedQuad;
 
 // Initialization, create an OpenGL context
 void onInitialization() {
