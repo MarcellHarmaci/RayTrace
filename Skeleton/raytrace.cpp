@@ -419,7 +419,7 @@ class Scene {
 	vec3 La;
 public:
 	void build() {
-		vec3 eye = vec3(0.0f, 0.0f, 2.95f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
+		vec3 eye = vec3(5.0f, 5.0f, 2.95f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
 		float fov = 45 * M_PI / 180;
 		camera.set(eye, lookat, vup, fov);
 
@@ -452,6 +452,12 @@ public:
 		object3->translate(vec3(-0.5f, -0.6f, 0.0f));
 		object3->setEnds(vec3(0.0f, -0.25f, 0.0f), vec3(0.0f, -0.95f, 0.0f));
 		objects.push_back(object3);
+
+		Hyperboloid* sunTube = new Hyperboloid(0.1791f, 0.1791f, 0.4f, greenRough);
+		sunTube->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
+		sunTube->translate(vec3(0.0f, 0.99f, 0.0f));
+		sunTube->setEnds(vec3(0.0f, 1.7f, 0.0f), vec3(0.0f, 0.99f, 0.0f));
+		objects.push_back(sunTube);
 
 		//for (int i = 0; i < 100; i++) {
 		//	objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, blueRough));
