@@ -202,6 +202,21 @@ struct Ellipsoid : public Quadric {
 			0.0f, 0.0f, 0.0f, -1.0f
 		);
 	}
+
+	Hit intersect(const Ray& ray) {
+		Hit hit;
+
+		vec2 solution = solve(ray);
+		if (solution.x <= 0) return hit;
+
+		hit.t = (solution.y > 0) ? solution.y : solution.x;
+		hit.position = ray.start + ray.dir * hit.t;
+		if (dot(vec3(0.0f, 1.0f, 0.0f), hit.position - vec3(0.0f, 0.99f, 0.0f)) > 0) return Hit();
+
+		hit.normal = normalize(gradf(vec4(hit.position.x, hit.position.y, hit.position.z, 1.0f)));
+		hit.material = material;
+		return hit;
+	}
 };
 
 struct EllipticalCone : public Quadric {
@@ -249,6 +264,29 @@ struct Sphere : public Intersectable {
 	}
 };
 
+struct Plane : public Intersectable {
+	vec3 p0, normal;
+
+	Plane(vec3 _p0, vec3 _normal, Material* _material) {
+		p0 = _p0;
+		normal = normalize(_normal);
+		material = _material;
+	}
+
+	Hit intersect(const Ray& ray) {
+		Hit hit;
+
+		float t = dot(normal, (p0 - ray.start) / ray.dir);
+		if (t < 0) return hit;
+
+		hit.t = t;
+		hit.position = ray.start + ray.dir * hit.t;
+		hit.normal = normal;
+		hit.material = material;
+		return hit;
+	}
+};
+
 class Camera {
 	vec3 eye, lookat, right, up;
 public:
@@ -286,36 +324,32 @@ class Scene {
 	vec3 La;
 public:
 	void build() {
-		vec3 eye = vec3(0.0f, 0.0f, 3.0f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
+		vec3 eye = vec3(0.0f, 0.0f, 2.95f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
 		float fov = 45 * M_PI / 180;
 		camera.set(eye, lookat, vup, fov);
 
 		La = vec3(0.4f, 0.4f, 0.4f);
 		// La = vec3(135.0f/255.0f, 206.0f / 255.0f, 235.0f / 255.0f); Sky blueRough
-		vec3 lightDirection(1.0f, 1.0f, 1.0f), Le(2, 2, 2);
+		vec3 lightDirection(2.0f, 2.0f, 2.0f), Le(2, 2, 2);
 		lights.push_back(new Light(lightDirection, Le));
 
 		vec3 kd1(0.3f, 0.2f, 0.1f), kd2(0.1f, 0.2f, 0.3f), ks(2, 2, 2);
-		vec3 silverN(0.14f, 0.16f, 0.13f), silverKappa(4.1f, 2.6f, 3.1f);
-		vec3 goldN(0.17, 0.35, 1.5), goldKappa = vec3(3.1f, 2.7f, 1.9f);
 		Material* brownRough = new RoughMaterial(kd1, ks, 50);
 		Material* blueRough = new RoughMaterial(kd2, ks, 50);
 
-		Material* silverMirror = new ReflectiveMaterial(silverN, silverKappa);
-		Material* goldenMirror = new ReflectiveMaterial(goldN, goldKappa);
+		Material* silverMirror = new ReflectiveMaterial(vec3(0.14f, 0.16f, 0.13f), vec3(4.1f, 2.6f, 3.1f));
+		Material* goldenMirror = new ReflectiveMaterial(vec3(0.17f, 0.35f, 1.5f), vec3(3.1f, 2.7f, 1.9f));
 
-		for (int i = 0; i < 50; i++) {
-			objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, blueRough));
-		}
+		objects.push_back(new Ellipsoid(3.0f, 1.0f, 3.0f, brownRough));
 
-		Ellipsoid* ellipsoid = new Ellipsoid(0.3f, 0.4f, 0.2f, brownRough);
-		ellipsoid->translate(vec3(0.2f, 0.2f, 0.7f));
-		ellipsoid->rotate(60.0f, vec3(-1.0f, -1.0f, -1.0f));
-		objects.push_back(ellipsoid);
+		//Hyperboloid* hyperboloid = new Hyperboloid(0.2f, 0.2f, 0.5f, brownRough);
+		//hyperboloid->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
+		//hyperboloid->translate(vec3(0.0f, -0.2f, 0.0f));
+		//objects.push_back(hyperboloid);
 
-		//objects.push_back(new Hyperboloid(0.45f, 0.65f, 0.8f, brownRough));
-		//objects.push_back(new EllipticalCone(0.45f, 0.65f, 0.25f, material1));
-		//objects.push_back(new EllipticParaboloid(0.45f, 0.65f, material1));
+		//for (int i = 0; i < 100; i++) {
+		//	objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, blueRough));
+		//}
 	}
 
 	void render(std::vector<vec4>& image) {
@@ -360,8 +394,8 @@ public:
 
 			for (Light* light : lights) {
 				Ray shadowRay(hit.position + hit.normal * epsilon, light->direction);
+				
 				float cosTheta = dot(hit.normal, light->direction);
-
 				if (cosTheta > 0 && !shadowIntersect(shadowRay)) {	// shadow computation
 					outRadiance = outRadiance + light->Le * hit.material->kd * cosTheta;
 					vec3 halfway = normalize(-ray.dir + light->direction);
