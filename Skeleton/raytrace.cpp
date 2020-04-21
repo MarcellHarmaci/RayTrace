@@ -14,6 +14,7 @@ struct Material {
 	}
 };
 
+// Source: video 8.3
 struct RoughMaterial : Material {
 	RoughMaterial(vec3 _kd, vec3 _ks, float _shininess) : Material(ROUGH) {
 		ka = _kd * M_PI;
@@ -23,10 +24,12 @@ struct RoughMaterial : Material {
 	}
 };
 
+// Source: video 8.3
 vec3 operator/(vec3 num, vec3 denom) {
 	return vec3(num.x / denom.x, num.y / denom.y, num.z / denom.z);
 }
 
+// Source: video 8.3
 struct ReflectiveMaterial : Material {
 	ReflectiveMaterial(vec3 n, vec3 kappa) : Material(REFLECTIVE) {
 		vec3 one(1, 1, 1);
@@ -74,16 +77,6 @@ mat4 invTranslateMx(mat4 mx) {
 		0.0f, 1.0f, 0.0f, 0.0f,
 		0.0f, 0.0f, 1.0f, 0.0f,
 		-param.x, -param.y, -param.z, 1.0f
-	);
-}
-
-mat4 invScaleMx(mat4 mx) {
-	vec3 param(mx[0].x, mx[1].y, mx[2].z);
-	return mat4(
-		1.0f / mx[0].x, 0.0f, 0.0f, 0.0f,
-		0.0f, 1.0f / mx[1].y, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f / mx[2].z, 0.0f,
-		0.0f, 0.0f, 0.0f, 1.0f
 	);
 }
 
@@ -238,11 +231,11 @@ struct Hyperboloid : public Quadric {
 	}
 };
 
-struct Cylinder : public Quadric {
+struct EllipticalCylinder : public Quadric {
 	float a, b;
 	vec3 top, bottom;
 
-	Cylinder(float _a, float _b, Material* _material) {
+	EllipticalCylinder(float _a, float _b, Material* _material) {
 		material = _material;
 		a = _a; b = _b;
 		Q = mat4(
@@ -327,10 +320,11 @@ struct Ellipsoid : public Quadric {
 
 struct EllipticalCone : public Quadric {
 	float a, b, c;
+	vec3 top, bottom;
 
 	EllipticalCone(float _a, float _b, float _c, Material* _material) {
 		material = _material;
-		a = _a; b = _b; c = _c;
+		a = _a; b = _b; c = _c; top = 0.0f;
 		Q = mat4(
 			1.0f / (a * a), 0.0f, 0.0f, 0.0f,
 			0.0f, 1.0f / (b * b), 0.0f, 0.0f,
@@ -338,33 +332,44 @@ struct EllipticalCone : public Quadric {
 			0.0f, 0.0f, 0.0f, 0.0f
 		);
 	}
-};
 
-struct Sphere : public Intersectable {
-	vec3 center;
-	float radius;
-
-	Sphere(const vec3& _center, float _radius, Material* _material) {
-		center = _center;
-		radius = _radius;
-		material = _material;
+	void setEnds(vec3 _top, vec3 _bottom) {
+		top = _top;
+		bottom = _bottom;
 	}
 
 	Hit intersect(const Ray& ray) {
 		Hit hit;
-		vec3 dist = ray.start - center;
-		float a = dot(ray.dir, ray.dir);
-		float b = dot(dist, ray.dir) * 2.0f;
-		float c = dot(dist, dist) - radius * radius;
-		float discr = b * b - 4.0f * a * c;
-		if (discr < 0) return hit;
-		float sqrt_discr = sqrtf(discr);
-		float t1 = (-b + sqrt_discr) / 2.0f / a;	// t1 >= t2 for sure
-		float t2 = (-b - sqrt_discr) / 2.0f / a;
-		if (t1 <= 0) return hit;
-		hit.t = (t2 > 0) ? t2 : t1;
-		hit.position = ray.start + ray.dir * hit.t;
-		hit.normal = (hit.position - center) * (1.0f / radius);
+		vec3 nPos(0.0f, 1.0f, 0.0f), nNeg(0.0f, -1.0f, 0.0f);
+
+		vec2 solution = solve(ray);
+		if (solution.x <= 0) return hit;
+
+		if (solution.y > 0) {
+			hit.t = solution.y;
+			hit.position = ray.start + ray.dir * hit.t;
+
+			if (dot(nPos, hit.position - top) > 0 ||
+				dot(nNeg, hit.position - bottom) > 0) {
+				hit.t = solution.x;
+				hit.position = ray.start + ray.dir * hit.t;
+
+				if (dot(nPos, hit.position - top) > 0 ||
+					dot(nNeg, hit.position - bottom) > 0)
+					return Hit();
+			}
+		}
+		else {
+			hit.t = solution.x;
+			hit.position = ray.start + ray.dir * hit.t;
+
+			if (dot(nPos, hit.position - top) > 0 ||
+				dot(nNeg, hit.position - bottom) > 0) {
+				return Hit();
+			}
+		}
+
+		hit.normal = normalize(gradf(vec4(hit.position.x, hit.position.y, hit.position.z, 1.0f)));
 		hit.material = material;
 		return hit;
 	}
@@ -426,17 +431,17 @@ public:
 		camera.set(eye, lookat, vup, fov);
 
 		La = vec3(135.0f / 255.0f, 206.0f / 255.0f, 235.0f / 255.0f);
-		vec3 lightDirection(2.0f, 1.0f, 2.0f), Le(500, 500, 500);
+		vec3 lightDirection(2.0f, 1.7f, 2.0f), Le(100, 100, 100);
 		lights.push_back(new Light(lightDirection, Le));
 
 		numOfControlPoints = 100.0f;
 		genControlPoints(0.99f, 0.4232f);
 
-		// nice blue kd(0.12f, 0.22f, 0.32f)
-		vec3 kd1(0.32f, 0.12f, 0.12f), kd2(0.35f, 0.18f, 0.1f), kd3(0.1f, 0.3f, 0.2f), ks(2, 2, 2);
-		Material* redRough = new RoughMaterial(kd1, ks, 50);
+		vec3 kd1(0.32f, 0.12f, 0.12f), kd2(0.35f, 0.18f, 0.1f), kd3(0.1f, 0.3f, 0.2f), kd4(0.12f, 0.22f, 0.32f), ks(2, 2, 2);
+		Material* redRough = new RoughMaterial(kd1, ks, 100);
 		Material* brownRough = new RoughMaterial(kd2, ks, 80);
 		Material* greenRough = new RoughMaterial(kd3, ks, 50);
+		Material* blueRough = new RoughMaterial(kd4, ks, 50);
 
 		Material* silverMirror = new ReflectiveMaterial(vec3(0.14f, 0.16f, 0.13f), vec3(4.1f, 2.6f, 3.1f));
 		Material* goldenMirror = new ReflectiveMaterial(vec3(0.17f, 0.35f, 1.5f), vec3(3.1f, 2.7f, 1.9f));
@@ -449,16 +454,22 @@ public:
 		object1->translate(vec3(0.5f, -0.5f, -1.3f));
 		objects.push_back(object1);
 
-		Cylinder* object2 = new Cylinder(0.15f, 0.25f, redRough);
-		object2->translate(vec3(-0.4f, -0.6f, 0.0f));
+		EllipticalCylinder* object2 = new EllipticalCylinder(0.25f, 0.15f, redRough);
+		object2->translate(vec3(-0.4f, -0.55f, 0.0f));
 		object2->setEnds(vec3(0.0f, 0.0f, -0.1f), vec3(0.0f, 0.0f, -1.5f));
 		objects.push_back(object2);
 
-		Hyperboloid* object3 = new Hyperboloid(0.15f, 0.15f, 0.2f, greenRough);
+		Hyperboloid* object3 = new Hyperboloid(0.15f, 0.15f, 0.18f, greenRough);
 		object3->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
-		object3->translate(vec3(-1.2f, -0.6f, -0.9f));
-		object3->setEnds(vec3(0.0f, -0.25f, 0.0f), vec3(0.0f, -0.95f, 0.0f));
+		object3->translate(vec3(-1.2f, -0.525f, -0.9f));
+		object3->setEnds(vec3(0.0f, -0.25f, 0.0f), vec3(0.0f, -0.8f, 0.0f));
 		objects.push_back(object3);
+
+		EllipticalCone* object4 = new EllipticalCone(0.2f, 0.2f, 0.55f, blueRough);
+		object4->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
+		object4->translate(vec3(-0.83f, 0.17f, -1.6f));
+		object4->setEnds(vec3(0.0f, 0.17f, 0.0f), vec3(0.f, -0.65f, 0.0f));
+		objects.push_back(object4);
 
 		Hyperboloid* sunTube = new Hyperboloid(0.4232f, 0.4232f, 0.5f, silverMirror);
 		sunTube->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
@@ -498,7 +509,7 @@ public:
 	}
 
 	vec3 trace(Ray ray, bool isCPTrace = false, int depth = 0) {
-		if (depth > 10) return La;
+		if (depth > 20) return La;
 
 		Hit hit = firstIntersect(ray, isCPTrace);
 		Light* sun = lights.at(0);
@@ -530,7 +541,7 @@ public:
 					float cosTheta = dot(hit.normal, normalize(cp - hit.position));
 					
 					if (cosTheta > 0 && !shadowIntersect(shadowRay)) {
-						// incoming radiation
+						// local illumination
 						vec3 cpLe = trace(Ray(hitPlusEpsilon, cp - hit.position), true, depth + 1);
 						cpRadiance = cpRadiance + cpLe * hit.material->kd * cosTheta;
 				
@@ -555,6 +566,7 @@ public:
 			}
 		}
 
+		// Source: video 8.3
 		if (hit.material->type == REFLECTIVE) {
 			vec3 reflectedDir = ray.dir - hit.normal * dot(hit.normal, ray.dir) * 2.0f;
 			float cosa = -dot(ray.dir, hit.normal);
