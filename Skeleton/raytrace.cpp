@@ -431,14 +431,14 @@ public:
 		camera.set(eye, lookat, vup, fov);
 
 		La = vec3(135.0f / 255.0f, 206.0f / 255.0f, 235.0f / 255.0f);
-		vec3 lightDirection(2.0f, 1.7f, 2.0f), Le(100, 100, 100);
+		vec3 lightDirection(0.5f, 7.0f, -1.5f), Le(40, 40, 20);
 		lights.push_back(new Light(lightDirection, Le));
 
-		numOfControlPoints = 100.0f;
+		numOfControlPoints = 30.0f;
 		genControlPoints(0.99f, 0.4232f);
 
 		vec3 kd1(0.32f, 0.12f, 0.12f), kd2(0.35f, 0.18f, 0.1f), kd3(0.1f, 0.3f, 0.2f), kd4(0.12f, 0.22f, 0.32f), ks(2, 2, 2);
-		Material* redRough = new RoughMaterial(kd1, ks, 100);
+		Material* redRough = new RoughMaterial(kd1, ks, 70);
 		Material* brownRough = new RoughMaterial(kd2, ks, 80);
 		Material* greenRough = new RoughMaterial(kd3, ks, 50);
 		Material* blueRough = new RoughMaterial(kd4, ks, 50);
@@ -450,31 +450,31 @@ public:
 		room->makeRoom();
 		objects.push_back(room);
 
-		Ellipsoid* object1 = new Ellipsoid(0.5f, 0.8f, 0.7f, goldenMirror);
-		object1->translate(vec3(0.5f, -0.5f, -1.3f));
+		Ellipsoid* object1 = new Ellipsoid(0.5f, 0.85f, 0.7f, goldenMirror);
+		object1->translate(vec3(1.1f, -0.5f, -1.5f));
 		objects.push_back(object1);
 
 		EllipticalCylinder* object2 = new EllipticalCylinder(0.25f, 0.15f, redRough);
-		object2->translate(vec3(-0.4f, -0.55f, 0.0f));
+		object2->translate(vec3(0.2f, -0.55f, 0.0f));
 		object2->setEnds(vec3(0.0f, 0.0f, -0.1f), vec3(0.0f, 0.0f, -1.5f));
 		objects.push_back(object2);
 
 		Hyperboloid* object3 = new Hyperboloid(0.15f, 0.15f, 0.18f, greenRough);
 		object3->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
-		object3->translate(vec3(-1.2f, -0.525f, -0.9f));
-		object3->setEnds(vec3(0.0f, -0.25f, 0.0f), vec3(0.0f, -0.8f, 0.0f));
+		object3->translate(vec3(-1.0f, -0.525f, -0.9f));
+		object3->setEnds(vec3(0.0f, -0.2f, 0.0f), vec3(0.0f, -0.85f, 0.0f));
 		objects.push_back(object3);
 
 		EllipticalCone* object4 = new EllipticalCone(0.2f, 0.2f, 0.55f, blueRough);
-		object4->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
-		object4->translate(vec3(-0.83f, 0.17f, -1.6f));
+		object4->rotate(80 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
+		object4->translate(vec3(-0.43f, 0.17f, -1.6f));
 		object4->setEnds(vec3(0.0f, 0.17f, 0.0f), vec3(0.f, -0.65f, 0.0f));
 		objects.push_back(object4);
 
 		Hyperboloid* sunTube = new Hyperboloid(0.4232f, 0.4232f, 0.5f, silverMirror);
 		sunTube->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
 		sunTube->translate(vec3(0.0f, 0.99f, 0.0f));
-		sunTube->setEnds(vec3(0.0f, 1.7f, 0.0f), vec3(0.0f, 0.99f, 0.0f));
+		sunTube->setEnds(vec3(0.0f, 2.5f, 0.0f), vec3(0.0f, 0.98f, 0.0f));
 		objects.push_back(sunTube);
 
 	}
@@ -489,7 +489,7 @@ public:
 		}
 	}
 
-	Hit firstIntersect(Ray ray, bool isCPTrace) {
+	Hit firstIntersect(Ray ray) {
 		Hit bestHit;
 		for (Quadric* object : objects) {
 
@@ -501,18 +501,15 @@ public:
 		return bestHit;
 	}
 
-	bool shadowIntersect(Ray ray) {	// for directional lights
-		for (Intersectable* object : objects)
-			if (object->intersect(ray).t > 0) return true;
-
-		return false;
-	}
-
-	vec3 trace(Ray ray, bool isCPTrace = false, int depth = 0) {
-		if (depth > 20) return La;
-
-		Hit hit = firstIntersect(ray, isCPTrace);
+	vec3 trace(Ray ray, int depth = 0) {
 		Light* sun = lights.at(0);
+		if (depth > 3) {
+			if (ray.start.y > 0.99f)
+				return La + sun->Le * powf(dot(ray.dir, sun->direction), 10);
+			return La;
+		}
+
+		Hit hit = firstIntersect(ray);
 		if (hit.t < 0)
 			return La + sun->Le * powf(dot(ray.dir, sun->direction), 10);
 
@@ -521,48 +518,29 @@ public:
 		if (hit.material->type == ROUGH) {
 			outRadiance = hit.material->ka * La;
 
-			for (Light* light : lights) {
-				vec3 hitPlusEpsilon = hit.position + hit.normal * epsilon;
-				Ray shadowRay(hitPlusEpsilon, light->direction);
-
-				float cosTheta = dot(hit.normal, light->direction);
-				if (cosTheta > 0 && !shadowIntersect(shadowRay)) {	// shadow computation
-					outRadiance = outRadiance + light->Le * hit.material->kd * cosTheta;
-					vec3 halfway = normalize(-ray.dir + light->direction);
+			vec3 hitPlusEpsilon = hit.position + hit.normal * epsilon;
+			
+			for (vec3 cp : controlPoints) {
+				vec3 cpRadiance(0, 0, 0);
+				float cosTheta = dot(hit.normal, normalize(cp - hit.position));
+				
+				if (cosTheta > 0) {
+					vec3 cpLe = trace(Ray(hitPlusEpsilon, cp - hit.position), depth + 1);
+					cpRadiance = cpRadiance + cpLe * hit.material->kd * cosTheta;
+			
+					vec3 halfway = normalize(-ray.dir + (cp - hit.position));
 					float cosDelta = dot(hit.normal, halfway);
-					if (cosDelta > 0)
-						outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
-				}
-
-				vec3 tubeRadiance(0, 0, 0);
-				for (vec3 cp : controlPoints) {
-					vec3 cpRadiance(0, 0, 0);
-					Ray shadowRay(hitPlusEpsilon, cp - hitPlusEpsilon);
-					float cosTheta = dot(hit.normal, normalize(cp - hit.position));
-					
-					if (cosTheta > 0 && !shadowIntersect(shadowRay)) {
-						// local illumination
-						vec3 cpLe = trace(Ray(hitPlusEpsilon, cp - hit.position), true, depth + 1);
-						cpRadiance = cpRadiance + cpLe * hit.material->kd * cosTheta;
-				
-						// Phong-Blinn
-						vec3 halfway = normalize((-ray.dir + (cp - hit.position)) / 2.0f);
-						float cosDelta = dot(hit.normal, halfway);
-						if (cosDelta > 0) {
-							cpRadiance = cpRadiance + cpLe * hit.material->ks * powf(cosDelta, hit.material->shininess);
-						}
-				
-						// deltaOmega
-						vec3 Li = hit.position - cp;
-						float lengthLi = length(Li);
-						float cosGamma = dot(normalize(Li), vec3(0, -1.0f, 0));
-						float deltaOmega = (A / numOfControlPoints) * (cosGamma / (lengthLi * lengthLi));
-						cpRadiance = cpRadiance * deltaOmega;
+					if (cosDelta > 0) {
+						cpRadiance = cpRadiance + cpLe * hit.material->ks * powf(cosDelta, hit.material->shininess);
 					}
-					tubeRadiance = tubeRadiance + cpRadiance;
+			
+					vec3 Li = hit.position - cp;
+					float lengthLi = length(Li);
+					float cosGamma = dot(normalize(Li), vec3(0, -1.0f, 0));
+					float deltaOmega = (A / numOfControlPoints) * (cosGamma / (lengthLi * lengthLi));
+					cpRadiance = cpRadiance * deltaOmega;
 				}
-				
-				outRadiance = outRadiance + tubeRadiance;
+				outRadiance = outRadiance + cpRadiance;
 			}
 		}
 
