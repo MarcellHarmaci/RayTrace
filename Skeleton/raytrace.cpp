@@ -115,6 +115,8 @@ protected:
 	mat4 Q;
 
 public:
+	bool isRoom;
+
 	// Source: Homework assignment video
 	float f(vec4 r) {
 		return dot(r * Q, r);
@@ -124,6 +126,10 @@ public:
 	vec3 gradf(vec4 r) {
 		vec4 g = r * Q * 2;
 		return vec3(g.x, g.y, g.z);
+	}
+
+	void makeRoom() {
+		isRoom = true;
 	}
 
 	vec2 solve(const Ray& ray) {
@@ -234,6 +240,7 @@ struct Hyperboloid : public Quadric {
 
 struct Cylinder : public Quadric {
 	float a, b;
+	vec3 top, bottom;
 
 	Cylinder(float _a, float _b, Material* _material) {
 		material = _material;
@@ -246,10 +253,14 @@ struct Cylinder : public Quadric {
 		);
 	}
 
+	void setEnds(vec3 _top, vec3 _bottom) {
+		top = _top;
+		bottom = _bottom;
+	}
+
 	Hit intersect(const Ray& ray) {
 		Hit hit;
 		vec3 nPos(0.0f, 0.0f, 1.0f), nNeg(0.0f, 0.0f, -1.0f);
-		vec3 end1(0.0f, 0.0f, 0.5f), end2(0.0f, 0.0f, -0.4f);
 
 		vec2 solution = solve(ray);
 		if (solution.x <= 0) return hit;
@@ -258,13 +269,13 @@ struct Cylinder : public Quadric {
 			hit.t = solution.y;
 			hit.position = ray.start + ray.dir * hit.t;
 
-			if (dot(nPos, hit.position - end1) > 0 ||
-				dot(nNeg, hit.position - end2) > 0) {
+			if (dot(nPos, hit.position - top) > 0 ||
+				dot(nNeg, hit.position - bottom) > 0) {
 				hit.t = solution.x;
 				hit.position = ray.start + ray.dir * hit.t;
 
-				if (dot(nPos, hit.position - end1) > 0 ||
-					dot(nNeg, hit.position - end2) > 0)
+				if (dot(nPos, hit.position - top) > 0 ||
+					dot(nNeg, hit.position - bottom) > 0)
 					return Hit();
 			}
 		}
@@ -272,8 +283,8 @@ struct Cylinder : public Quadric {
 			hit.t = solution.x;
 			hit.position = ray.start + ray.dir * hit.t;
 
-			if (dot(nPos, hit.position - end1) > 0 ||
-				dot(nNeg, hit.position - end2) > 0) {
+			if (dot(nPos, hit.position - top) > 0 ||
+				dot(nNeg, hit.position - bottom) > 0) {
 				return Hit();
 			}
 		}
@@ -286,7 +297,6 @@ struct Cylinder : public Quadric {
 
 struct Ellipsoid : public Quadric {
 	float a, b, c;
-	bool isRoom;
 
 	Ellipsoid(float _a, float _b, float _c, Material* _material) {
 		a = _a; b = _b; c = _c;
@@ -297,11 +307,6 @@ struct Ellipsoid : public Quadric {
 			0.0f, 0.0f, 1.0f / (c * c), 0.0f,
 			0.0f, 0.0f, 0.0f, -1.0f
 		);
-		isRoom = false;
-	}
-
-	void makeRoom() {
-		isRoom = true;
 	}
 
 	Hit intersect(const Ray& ray) {
@@ -365,29 +370,6 @@ struct Sphere : public Intersectable {
 	}
 };
 
-struct Plane : public Intersectable {
-	vec3 p0, normal;
-
-	Plane(vec3 _p0, vec3 _normal, Material* _material) {
-		p0 = _p0;
-		normal = normalize(_normal);
-		material = _material;
-	}
-
-	Hit intersect(const Ray& ray) {
-		Hit hit;
-
-		float t = dot(normal, (p0 - ray.start) / ray.dir);
-		if (t < 0) return hit;
-
-		hit.t = t;
-		hit.position = ray.start + ray.dir * hit.t;
-		hit.normal = normal;
-		hit.material = material;
-		return hit;
-	}
-};
-
 class Camera {
 	vec3 eye, lookat, right, up;
 public:
@@ -419,16 +401,17 @@ float rnd() { return (float)rand() / RAND_MAX; }
 const float epsilon = 0.0001f;
 
 class Scene {
-	std::vector<Intersectable*> objects;
+	std::vector<Quadric*> objects;
 	std::vector<Light*> lights;
 	std::vector<vec3> controlPoints;
 	Camera camera;
 	vec3 La;
+	float numOfControlPoints, A = 0.4232f * 0.4232f * M_PI;
 
 public:
 	void genControlPoints(float y, float r) {
 		int cntGood = 0, cntBad = 0;
-		for (int i = 0; i < 50; i++) {
+		for (int i = 0; i < numOfControlPoints; i++) {
 			vec3 cp(2 * r * rnd() - r, y, 2 * r * rnd() - r);
 			while (length(vec2(cp.x, cp.z)) > r) {
 				cp = vec3(2 * r * rnd() - r, y, 2 * r * rnd() - r);
@@ -442,17 +425,17 @@ public:
 		float fov = 45 * M_PI / 180;
 		camera.set(eye, lookat, vup, fov);
 
-		//La = vec3(0.4f, 0.4f, 0.4f);
 		La = vec3(135.0f / 255.0f, 206.0f / 255.0f, 235.0f / 255.0f);
-		vec3 lightDirection(1.0f, 1.0f, 1.0f), Le(2, 2, 2);
+		vec3 lightDirection(2.0f, 1.0f, 2.0f), Le(500, 500, 500);
 		lights.push_back(new Light(lightDirection, Le));
 
+		numOfControlPoints = 100.0f;
 		genControlPoints(0.99f, 0.4232f);
 
 		// nice blue kd(0.12f, 0.22f, 0.32f)
-		vec3 kd1(0.32f, 0.12f, 0.12f), kd2(0.3f, 0.2f, 0.1f), kd3(0.1f, 0.3f, 0.2f), ks(2, 2, 2);
+		vec3 kd1(0.32f, 0.12f, 0.12f), kd2(0.35f, 0.18f, 0.1f), kd3(0.1f, 0.3f, 0.2f), ks(2, 2, 2);
 		Material* redRough = new RoughMaterial(kd1, ks, 50);
-		Material* brownRough = new RoughMaterial(kd2, ks, 50);
+		Material* brownRough = new RoughMaterial(kd2, ks, 80);
 		Material* greenRough = new RoughMaterial(kd3, ks, 50);
 
 		Material* silverMirror = new ReflectiveMaterial(vec3(0.14f, 0.16f, 0.13f), vec3(4.1f, 2.6f, 3.1f));
@@ -462,17 +445,18 @@ public:
 		room->makeRoom();
 		objects.push_back(room);
 
-		Ellipsoid* object1 = new Ellipsoid(0.2f, 0.37f, 0.23f, goldenMirror);
-		object1->translate(vec3(0.0f, -0.8f, -0.1f));
+		Ellipsoid* object1 = new Ellipsoid(0.5f, 0.8f, 0.7f, goldenMirror);
+		object1->translate(vec3(0.5f, -0.5f, -1.3f));
 		objects.push_back(object1);
 
-		Cylinder* object2 = new Cylinder(0.1f, 0.2f, redRough);
-		object2->translate(vec3(0.4f, -0.6f, 0.0f));
+		Cylinder* object2 = new Cylinder(0.15f, 0.25f, redRough);
+		object2->translate(vec3(-0.4f, -0.6f, 0.0f));
+		object2->setEnds(vec3(0.0f, 0.0f, -0.1f), vec3(0.0f, 0.0f, -1.5f));
 		objects.push_back(object2);
 
-		Hyperboloid* object3 = new Hyperboloid(0.1f, 0.1f, 0.2f, greenRough);
+		Hyperboloid* object3 = new Hyperboloid(0.15f, 0.15f, 0.2f, greenRough);
 		object3->rotate(90 * M_PI / 180.0f, vec3(1.0f, 0.0f, 0.0f));
-		object3->translate(vec3(-0.5f, -0.6f, 0.0f));
+		object3->translate(vec3(-1.2f, -0.6f, -0.9f));
 		object3->setEnds(vec3(0.0f, -0.25f, 0.0f), vec3(0.0f, -0.95f, 0.0f));
 		objects.push_back(object3);
 
@@ -482,9 +466,6 @@ public:
 		sunTube->setEnds(vec3(0.0f, 1.7f, 0.0f), vec3(0.0f, 0.99f, 0.0f));
 		objects.push_back(sunTube);
 
-		//for (int i = 0; i < 100; i++) {
-		//	objects.push_back(new Sphere(vec3(rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f), rnd() * 0.1f, silverMirror));
-		//}
 	}
 
 	void render(std::vector<vec4>& image) {
@@ -497,9 +478,10 @@ public:
 		}
 	}
 
-	Hit firstIntersect(Ray ray) {
+	Hit firstIntersect(Ray ray, bool isCPTrace) {
 		Hit bestHit;
-		for (Intersectable* object : objects) {
+		for (Quadric* object : objects) {
+
 			Hit hit = object->intersect(ray); //  hit.t < 0 if no intersection
 			if (hit.t > 0 && (bestHit.t < 0 || hit.t < bestHit.t))  bestHit = hit;
 		}
@@ -515,12 +497,13 @@ public:
 		return false;
 	}
 
-	vec3 trace(Ray ray, int depth = 0) {
-		if (depth > 5) return La;
+	vec3 trace(Ray ray, bool isCPTrace = false, int depth = 0) {
+		if (depth > 10) return La;
 
-		Hit hit = firstIntersect(ray);
+		Hit hit = firstIntersect(ray, isCPTrace);
+		Light* sun = lights.at(0);
 		if (hit.t < 0)
-			return La;
+			return La + sun->Le * powf(dot(ray.dir, sun->direction), 10);
 
 		vec3 outRadiance(0, 0, 0);
 
@@ -540,12 +523,35 @@ public:
 						outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
 				}
 
-				//vec3 tubeRadiance(0, 0, 0);
-				//for (vec3 cp : controlPoints) {
-				//	tubeRadiance = tubeRadiance + trace(Ray(hitPlusEpsilon, cp - hitPlusEpsilon), depth + 1);
-				//}
-				//
-				//outRadiance = outRadiance + tubeRadiance;
+				vec3 tubeRadiance(0, 0, 0);
+				for (vec3 cp : controlPoints) {
+					vec3 cpRadiance(0, 0, 0);
+					Ray shadowRay(hitPlusEpsilon, cp - hitPlusEpsilon);
+					float cosTheta = dot(hit.normal, normalize(cp - hit.position));
+					
+					if (cosTheta > 0 && !shadowIntersect(shadowRay)) {
+						// incoming radiation
+						vec3 cpLe = trace(Ray(hitPlusEpsilon, cp - hit.position), true, depth + 1);
+						cpRadiance = cpRadiance + cpLe * hit.material->kd * cosTheta;
+				
+						// Phong-Blinn
+						vec3 halfway = normalize((-ray.dir + (cp - hit.position)) / 2.0f);
+						float cosDelta = dot(hit.normal, halfway);
+						if (cosDelta > 0) {
+							cpRadiance = cpRadiance + cpLe * hit.material->ks * powf(cosDelta, hit.material->shininess);
+						}
+				
+						// deltaOmega
+						vec3 Li = hit.position - cp;
+						float lengthLi = length(Li);
+						float cosGamma = dot(normalize(Li), vec3(0, -1.0f, 0));
+						float deltaOmega = (A / numOfControlPoints) * (cosGamma / (lengthLi * lengthLi));
+						cpRadiance = cpRadiance * deltaOmega;
+					}
+					tubeRadiance = tubeRadiance + cpRadiance;
+				}
+				
+				outRadiance = outRadiance + tubeRadiance;
 			}
 		}
 
