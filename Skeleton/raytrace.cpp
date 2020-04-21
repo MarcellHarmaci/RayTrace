@@ -286,6 +286,7 @@ struct Cylinder : public Quadric {
 
 struct Ellipsoid : public Quadric {
 	float a, b, c;
+	bool isRoom;
 
 	Ellipsoid(float _a, float _b, float _c, Material* _material) {
 		a = _a; b = _b; c = _c;
@@ -296,6 +297,11 @@ struct Ellipsoid : public Quadric {
 			0.0f, 0.0f, 1.0f / (c * c), 0.0f,
 			0.0f, 0.0f, 0.0f, -1.0f
 		);
+		isRoom = false;
+	}
+
+	void makeRoom() {
+		isRoom = true;
 	}
 
 	Hit intersect(const Ray& ray) {
@@ -306,7 +312,7 @@ struct Ellipsoid : public Quadric {
 
 		hit.t = (solution.y > 0) ? solution.y : solution.x;
 		hit.position = ray.start + ray.dir * hit.t;
-		if (dot(vec3(0.0f, 1.0f, 0.0f), hit.position - vec3(0.0f, 0.99f, 0.0f)) > 0) return Hit();
+		if (isRoom && dot(vec3(0.0f, 1.0f, 0.0f), hit.position - vec3(0.0f, 0.99f, 0.0f)) > 0) return Hit();
 
 		hit.normal = normalize(gradf(vec4(hit.position.x, hit.position.y, hit.position.z, 1.0f)));
 		hit.material = material;
@@ -415,18 +421,33 @@ const float epsilon = 0.0001f;
 class Scene {
 	std::vector<Intersectable*> objects;
 	std::vector<Light*> lights;
+	std::vector<vec3> controlPoints;
 	Camera camera;
 	vec3 La;
+
 public:
+	void genControlPoints(float y, float r) {
+		int cntGood = 0, cntBad = 0;
+		for (int i = 0; i < 50; i++) {
+			vec3 cp(2 * r * rnd() - r, y, 2 * r * rnd() - r);
+			while (length(vec2(cp.x, cp.z)) > r) {
+				cp = vec3(2 * r * rnd() - r, y, 2 * r * rnd() - r);
+			}
+			controlPoints.push_back(cp);
+		}
+	}
+
 	void build() {
 		vec3 eye = vec3(0.0f, 0.0f, 2.95f), vup = vec3(0, 1, 0), lookat = vec3(0, 0, 0);
 		float fov = 45 * M_PI / 180;
 		camera.set(eye, lookat, vup, fov);
 
 		//La = vec3(0.4f, 0.4f, 0.4f);
-		La = vec3(135.0f/255.0f, 206.0f / 255.0f, 235.0f / 255.0f);
+		La = vec3(135.0f / 255.0f, 206.0f / 255.0f, 235.0f / 255.0f);
 		vec3 lightDirection(1.0f, 1.0f, 1.0f), Le(2, 2, 2);
 		lights.push_back(new Light(lightDirection, Le));
+
+		genControlPoints(0.99f, 0.4232f);
 
 		// nice blue kd(0.12f, 0.22f, 0.32f)
 		vec3 kd1(0.32f, 0.12f, 0.12f), kd2(0.3f, 0.2f, 0.1f), kd3(0.1f, 0.3f, 0.2f), ks(2, 2, 2);
@@ -437,7 +458,9 @@ public:
 		Material* silverMirror = new ReflectiveMaterial(vec3(0.14f, 0.16f, 0.13f), vec3(4.1f, 2.6f, 3.1f));
 		Material* goldenMirror = new ReflectiveMaterial(vec3(0.17f, 0.35f, 1.5f), vec3(3.1f, 2.7f, 1.9f));
 
-		objects.push_back(new Ellipsoid(3.0f, 1.0f, 3.0f, brownRough));
+		Ellipsoid* room = new Ellipsoid(3.0f, 1.0f, 3.0f, brownRough);
+		room->makeRoom();
+		objects.push_back(room);
 
 		Ellipsoid* object1 = new Ellipsoid(0.2f, 0.37f, 0.23f, goldenMirror);
 		object1->translate(vec3(0.0f, -0.8f, -0.1f));
@@ -505,8 +528,9 @@ public:
 			outRadiance = hit.material->ka * La;
 
 			for (Light* light : lights) {
-				Ray shadowRay(hit.position + hit.normal * epsilon, light->direction);
-				
+				vec3 hitPlusEpsilon = hit.position + hit.normal * epsilon;
+				Ray shadowRay(hitPlusEpsilon, light->direction);
+
 				float cosTheta = dot(hit.normal, light->direction);
 				if (cosTheta > 0 && !shadowIntersect(shadowRay)) {	// shadow computation
 					outRadiance = outRadiance + light->Le * hit.material->kd * cosTheta;
@@ -515,6 +539,13 @@ public:
 					if (cosDelta > 0)
 						outRadiance = outRadiance + light->Le * hit.material->ks * powf(cosDelta, hit.material->shininess);
 				}
+
+				//vec3 tubeRadiance(0, 0, 0);
+				//for (vec3 cp : controlPoints) {
+				//	tubeRadiance = tubeRadiance + trace(Ray(hitPlusEpsilon, cp - hitPlusEpsilon), depth + 1);
+				//}
+				//
+				//outRadiance = outRadiance + tubeRadiance;
 			}
 		}
 
